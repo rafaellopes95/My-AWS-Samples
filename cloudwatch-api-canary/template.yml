@@ -1,0 +1,111 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: cloudwatch-api-canary
+Transform: AWS::Serverless-2016-10-31
+Resources:
+  MockApiCanary:
+    Type: AWS::Synthetics::Canary
+    Properties: 
+      Name: mock-api-canary
+      ArtifactS3Location: s3://rafael-leme/canary/
+      Code: 
+        Handler: apiCanaryBlueprint.handler
+        Script: >-
+          var synthetics = require('Synthetics');
+          const log = require('SyntheticsLogger');
+          const https = require('https');
+          const http = require('http');
+
+          const apiCanaryBlueprint = async function () {
+              const postData = "";
+
+              const verifyRequest = async function (requestOption) {
+                return new Promise((resolve, reject) => {
+                  log.info("Making request with options: " + JSON.stringify(requestOption));
+                  let req
+                  if (requestOption.port === 443) {
+                    req = https.request(requestOption);
+                  } else {
+                    req = http.request(requestOption);
+                  }
+                  req.on('response', (res) => {
+                    log.info(`Status Code: ${res.statusCode}`)
+                    log.info(`Response Headers: ${JSON.stringify(res.headers)}`)
+                    //If the response status code is not a 2xx success code
+                    if (res.statusCode < 200 || res.statusCode > 299) {
+                      reject("Failed: " + requestOption.path);
+                    }
+                    res.on('data', (d) => {
+                      log.info("Response: " + d);
+                    });
+                    res.on('end', () => {
+                      resolve();
+                    })
+                  });
+
+                  req.on('error', (error) => {
+                    reject(error);
+                  });
+
+                  if (postData) {
+                    req.write(postData);
+                  }
+                  req.end();
+                });
+              }
+
+              const headers = {}
+              headers['User-Agent'] = [synthetics.getCanaryUserAgentString(), headers['User-Agent']].join(' ');
+              headers['Authorization'] = "Bearer xxxx";
+              const requestOptions = {"hostname":"sd28qclae5.execute-api.us-east-1.amazonaws.com","method":"GET","path":"/dev/test","port":443}
+              requestOptions['headers'] = headers;
+              await verifyRequest(requestOptions);
+          };
+
+          exports.handler = async () => {
+              return await apiCanaryBlueprint();
+          };
+      ExecutionRoleArn: !GetAtt CanaryLambdaExecutionRole.Arn
+      FailureRetentionPeriod: 1
+      SuccessRetentionPeriod: 1
+      RunConfig: 
+        TimeoutInSeconds: 30
+      Schedule:
+        Expression: 'rate(0 minute)'
+      RuntimeVersion: syn-nodejs-2.0
+      StartCanaryAfterCreation: false
+      Tags: 
+        - Key: app
+          Value: cloudwatch-api-canary
+
+  CanaryLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      RoleName: MockApiCanaryRole
+      Description: Role for Canary lambdas execution.
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies: 
+        - PolicyName: CanaryExecutionPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetBucketLocation
+                  - s3:ListAllMyBuckets
+                  - cloudwatch:PutMetricData
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+      Tags: 
+        - Key: app
+          Value: cloudwatch-api-canary

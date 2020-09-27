@@ -1,0 +1,10 @@
+version = 0.1
+[default]
+[default.deploy]
+[default.deploy.parameters]
+stack_name = "cloudwatch-api-canary"
+s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-1o4kx0ikro9eh"
+s3_prefix = "cloudwatch-api-canary"
+region = "us-east-1"
+capabilities = "CAPABILITY_NAMED_IAM"
+
